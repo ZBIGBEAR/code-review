@@ -474,7 +474,7 @@ def _run_review(diff_content: str, changed_files: list, format: str = "text",
 @cli.command()
 def hook():
     """Print git pre-commit hook script."""
-    hook_script = '''#!/bin/bash
+    hook_script = r'''#!/bin/bash
 # Code Review Pre-Commit Hook
 # Usage: code-review hook > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
 
@@ -484,7 +484,7 @@ echo "🔍 Running code review on staged changes..."
 
 # Get staged changes
 diff_content=$(git diff --cached --diff-filter=ACMR --staged)
-changed_files=$(git diff --cached --name-only --diff-filter=ACMR --staged | tr '\\n' ' ')
+changed_files=$(git diff --cached --name-only --diff-filter=ACMR --staged | tr '\n' ' ')
 
 if [ -z "$diff_content" ]; then
     echo "No staged changes to review."
@@ -496,7 +496,7 @@ echo ""
 
 # Save changed files to temp file for the diff command
 CHANGED_FILES_TMP=$(mktemp)
-echo "$changed_files" | tr ' ' '\\n' | grep -v '^$' > "$CHANGED_FILES_TMP"
+echo "$changed_files" | tr ' ' '\n' | grep -v '^$' > "$CHANGED_FILES_TMP"
 
 # Find Python with code_review module installed
 for py in "/opt/homebrew/Caskroom/miniconda/base/bin/python3" "/usr/local/bin/python3" "$HOME/miniconda3/bin/python3" "$HOME/anaconda3/bin/python3" "python3"; do
@@ -507,24 +507,45 @@ for py in "/opt/homebrew/Caskroom/miniconda/base/bin/python3" "/usr/local/bin/py
 done
 PYTHON_BIN=${PYTHON_BIN:-python3}
 
-# Run code review with reports output
-result=$(echo "$diff_content" | CHANGED_FILES_FILE="$CHANGED_FILES_TMP" $PYTHON_BIN -m code_review.main diff 2>&1) || true
+# Run code review with retry (max 3 retries)
+MAX_RETRIES=3
+retry=0
+result=""
+
+while [ $retry -lt $MAX_RETRIES ]; do
+    echo "Attempt $((retry + 1))/$MAX_RETRIES..."
+    result=$(echo "$diff_content" | CHANGED_FILES_FILE="$CHANGED_FILES_TMP" $PYTHON_BIN -m code_review.main diff 2>&1)
+    exit_code=$?
+
+    if [ $exit_code -eq 0 ]; then
+        break
+    fi
+
+    retry=$((retry + 1))
+    if [ $retry -lt $MAX_RETRIES ]; then
+        echo "Review failed, retrying..."
+        sleep 2
+    fi
+done
 
 # Cleanup
 rm -f "$CHANGED_FILES_TMP"
+
 echo "$result"
 
 # Check for critical issues - exit with error if found
 if echo "$result" | grep -q "Critical.*[1-9]"; then
     echo ""
     echo "❌ Critical issues found. Please fix them before committing."
+    echo "You can skip this hook with: git commit --no-verify"
     exit 1
 fi
 
 # Check exit code from code-review
-if [ $? -eq 1 ]; then
+if [ $exit_code -ne 0 ]; then
     echo ""
-    echo "❌ Code review failed. Please check the output above."
+    echo "❌ Code review failed after $MAX_RETRIES attempts. Please check the output above."
+    echo "You can skip this hook with: git commit --no-verify"
     exit 1
 fi
 
@@ -534,7 +555,6 @@ echo "✅ Code review passed!"
 exit 0
 '''
     click.echo(hook_script)
-
 
 if __name__ == "__main__":
     cli()
