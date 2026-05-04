@@ -448,8 +448,11 @@ fi
 echo "Changed files: $changed_files"
 echo ""
 
+# Find Python with code_review module
+PYTHON_BIN=$(python3 -c "import sys; print(sys.executable)" 2>/dev/null || echo "python3")
+
 # Run code review with reports output
-result=$(echo "$diff_content" | code-review diff 2>&1) || true
+result=$(echo "$diff_content" | $PYTHON_BIN -m code_review.main diff 2>&1) || true
 echo "$result"
 
 # Check for critical issues - exit with error if found
