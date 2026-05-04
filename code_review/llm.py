@@ -1,34 +1,11 @@
 """LLM client for code review."""
 import anthropic
-import os
 from dotenv import load_dotenv
+import os
 
-load_dotenv()
+load_dotenv(override=True)
 
-MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-7-20250514")
-
-
-def get_client() -> anthropic.Anthropic:
-    return anthropic.Anthropic(
-        api_key=os.getenv("ANTHROPIC_API_KEY"),
-        base_url=os.getenv("ANTHROPIC_BASE_URL"),
-    )
-
-
-def chat(messages: list, system: str = "", tools: list = None, max_tokens: int = 8192):
-    """Call LLM and return response object."""
-    client = get_client()
-    response = client.messages.create(
-        model=MODEL,
-        system=system,
-        messages=messages,
-        tools=tools or [],
-        max_tokens=max_tokens,
-    )
-    return response
-
-
-SYSTEM_PROMPT = """你是一个专业的代码审查专家。你的任务是对代码变更进行全面审查。
+SYSTEM = """你是一个专业的代码审查专家。你的任务是对代码变更进行全面审查。
 
 ## 你的工作方式
 1. 首先了解项目结构和修改的文件
@@ -99,54 +76,68 @@ SYSTEM_PROMPT = """你是一个专业的代码审查专家。你的任务是对�
 - Suggestion: -1分/条
 """
 
+TOOLS = [
+    {
+        "name": "bash",
+        "description": "执行 shell 命令。看 git diff、git log、git show 等 git 相关命令，以及任何需要的 shell 命令。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "command": {"type": "string", "description": "要执行的命令"},
+            },
+            "required": ["command"],
+        },
+    },
+    {
+        "name": "read_file",
+        "description": "读取文件内容。用于查看完整的文件代码，了解上下文。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "文件路径（相对于项目根目录）"},
+                "limit": {"type": "integer", "description": "最多读取的行数（可选）"},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "browse_codebase",
+        "description": "完成审查时调用此工具返回审查结果。输入 'done' 表示审查完成。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "result": {"type": "string", "description": "审查结果，必须是 JSON 格式字符串"},
+            },
+            "required": ["result"],
+        },
+    },
+]
 
-def get_tools() -> list:
-    """Return available tools for the AI."""
-    return [
-        {
-            "name": "bash",
-            "description": "执行 shell 命令。看 git diff、git log、git show 等 git 相关命令，以及任何需要的 shell 命令。",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "要执行的命令"
-                    }
-                },
-                "required": ["command"]
-            }
-        },
-        {
-            "name": "read_file",
-            "description": "读取文件内容。用于查看完整的文件代码，了解上下文。",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "文件路径（相对于项目根目录）"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "最多读取的行数（可选）"
-                    }
-                },
-                "required": ["path"]
-            }
-        },
-        {
-            "name": "browse_codebase",
-            "description": "完成审查时调用此工具返回审查结果。输入 'done' 表示审查完成。",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "result": {
-                        "type": "string",
-                        "description": "审查结果，必须是 JSON 格式字符串"
-                    }
-                },
-                "required": ["result"]
-            }
-        }
-    ]
+_client = None
+MODEL = os.getenv("CLAUDE_MODEL", "MiniMax-M2.7")
+
+
+def get_client():
+    global _client
+    if _client is None:
+        _client = anthropic.Anthropic(
+            api_key=os.getenv("ANTHROPIC_API_KEY"),
+            base_url=os.getenv("ANTHROPIC_BASE_URL"),
+        )
+    return _client
+
+
+def chat(messages: list, **kwargs):
+    client = get_client()
+    max_tokens = kwargs.get("max_tokens", 8192)
+    system = kwargs.get("system", SYSTEM)
+    tools = kwargs.get("tools", TOOLS)
+
+    response = client.messages.create(
+        model=MODEL,
+        system=system,
+        messages=messages,
+        tools=tools,
+        max_tokens=max_tokens,
+    )
+    return response
