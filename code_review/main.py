@@ -106,7 +106,10 @@ def agent_loop(messages: list) -> dict:
 
         # Check if AI stopped without tool use
         if response.stop_reason != "tool_use":
-            # AI finished without calling browse_codebase
+            # AI finished - check if there's a JSON result in the text
+            text_content = _extract_json_from_text(response.content)
+            if text_content:
+                return text_content
             text_content = _extract_text(response.content)
             return {
                 "error": f"AI stopped unexpectedly: {response.stop_reason}",
@@ -123,7 +126,11 @@ def agent_loop(messages: list) -> dict:
                 # Check if this is the browse_codebase call with "done"
                 if block.name == "browse_codebase":
                     try:
-                        result_json = json.loads(result["content"])
+                        content = result["content"].strip()
+                        if content.lower() == "done":
+                            # AI said done but no result - try to get result from previous text blocks
+                            continue
+                        result_json = json.loads(content)
                         # Review completed
                         return result_json
                     except (json.JSONDecodeError, KeyError):
@@ -147,6 +154,28 @@ def _extract_text(content) -> str:
         if hasattr(block, "text") and block.text:
             texts.append(block.text)
     return "\n".join(texts) if texts else ""
+
+
+def _extract_json_from_text(content) -> dict:
+    """Try to extract JSON result from AI text response."""
+    text = _extract_text(content)
+    # Look for JSON block
+    import re
+    # Match ```json ... ``` or just { ... }
+    json_match = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if json_match:
+        try:
+            return json.loads(json_match.group(1))
+        except json.JSONDecodeError:
+            pass
+    # Try to find {...} pattern
+    json_match = re.search(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, re.DOTALL)
+    if json_match:
+        try:
+            return json.loads(json_match.group(0))
+        except json.JSONDecodeError:
+            pass
+    return None
 
 
 @click.group()

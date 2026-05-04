@@ -51,7 +51,7 @@ def format_report(issues: list, score_info: dict, commit_info: dict = None) -> s
         lines.append("\n✅ 没有发现问题，代码看起来不错！")
 
     lines.append("\n" + "=" * 50)
-    lines.append(f"✅ {score_info['verdict']}")
+    lines.append(f"✅ {score_info['verdict'] or '需要人工审查'}")
     lines.append("=" * 50)
 
     return "\n".join(lines)
@@ -154,8 +154,7 @@ def format_markdown(issues: list, score_info: dict, commit_info: dict = None,
     else:
         lines.append("## ✅ 没有发现问题，代码看起来不错！")
         lines.append("")
-
-    lines.append(f"**结论**: {score_info['verdict']}")
+        lines.append(f"**结论**: 优秀，建议直接合并")
     lines.append("")
 
     return "\n".join(lines)
