@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Code Review CLI - Agent loop based code review system."""
+import os
 import sys
 import json
 import click
@@ -291,34 +292,50 @@ def diff(base_branch, format):
     """Review uncommitted or recent changes.
 
     Example: code-review diff --base-branch main
+
+    Can also accept diff via stdin (used by pre-commit hook).
     """
     setup_tool_handlers()
 
-    click.echo(f"🔍 Reviewing changes compared to {base_branch}...")
-
     import subprocess
-    try:
-        # Get diff
-        diff_result = subprocess.run(
-            ["git", "diff", f"{base_branch}...HEAD", "--no-color"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        diff_content = diff_result.stdout
+    import sys
 
-        # Get changed files
-        files_result = subprocess.run(
-            ["git", "diff", f"{base_branch}...HEAD", "--name-only", "--no-color"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        changed_files = [f.strip() for f in files_result.stdout.split("\n") if f.strip()]
+    # Check if stdin has content (from hook)
+    stdin_content = ""
+    if not sys.stdin.isatty():
+        stdin_content = sys.stdin.read()
 
-    except Exception as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
+    if stdin_content.strip():
+        # Use stdin content from hook
+        diff_content = stdin_content
+        # Read changed files from environment variable
+        changed_files = []
+        changed_files_file = os.environ.get("CHANGED_FILES_FILE")
+        if changed_files_file and Path(changed_files_file).exists():
+            changed_files = [line.strip() for line in Path(changed_files_file).read_text().splitlines() if line.strip()]
+        click.echo(f"📝 Using diff from stdin... ({len(changed_files)} files)")
+    else:
+        # Get diff from git
+        click.echo(f"🔍 Reviewing changes compared to {base_branch}...")
+        try:
+            diff_result = subprocess.run(
+                ["git", "diff", f"{base_branch}...HEAD", "--no-color"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            diff_content = diff_result.stdout
+
+            files_result = subprocess.run(
+                ["git", "diff", f"{base_branch}...HEAD", "--name-only", "--no-color"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            changed_files = [f.strip() for f in files_result.stdout.split("\n") if f.strip()]
+        except Exception as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
 
     if not diff_content.strip():
         click.echo("No code changes found.")
@@ -351,7 +368,7 @@ def file(file_path, format):
 
 
 def _run_review(diff_content: str, changed_files: list, format: str = "text",
-                commit_info: dict = None, output: str = None):
+                commit_info: dict = None, output: str = None, pr_url: str = None):
     """Run the review using agent loop.
 
     Args:
@@ -404,7 +421,7 @@ def _run_review(diff_content: str, changed_files: list, format: str = "text",
         # Save markdown report
         if output is None:
             output = "reports"
-        report_path = save_report(issues, score_info, commit_info, output)
+        report_path = save_report(issues, score_info, commit_info, changed_files, pr_url, output)
         click.echo(f"📄 报告已保存: {report_path}")
 
         # Output results
@@ -448,8 +465,11 @@ fi
 echo "Changed files: $changed_files"
 echo ""
 
+# Save changed files to temp file for the diff command
+CHANGED_FILES_TMP=$(mktemp)
+echo "$changed_files" | tr ' ' '\\n' | grep -v '^$' > "$CHANGED_FILES_TMP"
+
 # Find Python with code_review module installed
-# Try common locations
 for py in "/opt/homebrew/Caskroom/miniconda/base/bin/python3" "/usr/local/bin/python3" "$HOME/miniconda3/bin/python3" "$HOME/anaconda3/bin/python3" "python3"; do
     if $py -c "import code_review" 2>/dev/null; then
         PYTHON_BIN=$py
@@ -459,7 +479,10 @@ done
 PYTHON_BIN=${PYTHON_BIN:-python3}
 
 # Run code review with reports output
-result=$(echo "$diff_content" | $PYTHON_BIN -m code_review.main diff 2>&1) || true
+result=$(echo "$diff_content" | CHANGED_FILES_FILE="$CHANGED_FILES_TMP" $PYTHON_BIN -m code_review.main diff 2>&1) || true
+
+# Cleanup
+rm -f "$CHANGED_FILES_TMP"
 echo "$result"
 
 # Check for critical issues - exit with error if found

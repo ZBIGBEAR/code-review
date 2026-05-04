@@ -90,7 +90,8 @@ def format_json(issues: list, score_info: dict) -> str:
     }, ensure_ascii=False, indent=2)
 
 
-def format_markdown(issues: list, score_info: dict, commit_info: dict = None) -> str:
+def format_markdown(issues: list, score_info: dict, commit_info: dict = None,
+                   changed_files: list = None, pr_url: str = None) -> str:
     """Format results as markdown report."""
     lines = []
     lines.append("# Code Review Report")
@@ -98,10 +99,21 @@ def format_markdown(issues: list, score_info: dict, commit_info: dict = None) ->
     lines.append(f"**时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append("")
 
+    if pr_url:
+        lines.append(f"**PR**: {pr_url}")
+        lines.append("")
+
     if commit_info:
         lines.append(f"**Commit**: `{commit_info.get('sha', 'N/A')[:8]}`")
         lines.append(f"**作者**: {commit_info.get('author', 'N/A')}")
         lines.append(f"**主题**: {commit_info.get('subject', 'N/A')}")
+        lines.append("")
+
+    if changed_files:
+        lines.append("## 📝 变更文件")
+        lines.append("")
+        for f in changed_files:
+            lines.append(f"- `{f}`")
         lines.append("")
 
     lines.append(f"## 📊 综合评分：{score_info['score']}/100 {score_info['rating']}")
@@ -171,7 +183,9 @@ def _format_markdown_issue(issue: dict) -> str:
     return "\n".join(lines)
 
 
-def save_report(issues: list, score_info: dict, commit_info: dict = None, output_dir: str = "reports") -> str:
+def save_report(issues: list, score_info: dict, commit_info: dict = None,
+                changed_files: list = None, pr_url: str = None,
+                output_dir: str = "reports") -> str:
     """Save review report as markdown file to reports directory.
 
     Returns the path to the saved report.
@@ -188,7 +202,7 @@ def save_report(issues: list, score_info: dict, commit_info: dict = None, output
         filename = f"review_{timestamp}.md"
 
     report_path = report_dir / filename
-    markdown_content = format_markdown(issues, score_info, commit_info)
+    markdown_content = format_markdown(issues, score_info, commit_info, changed_files, pr_url)
     report_path.write_text(markdown_content, encoding="utf-8")
 
     return str(report_path)
