@@ -1,3 +1,4 @@
+[English](./README_en.md) | 中文
 # Code Review - 智能代码审查系统
 
 基于 LLM 的多维度代码审查工具，支持 Git Hook 和 GitHub Actions 集成。
