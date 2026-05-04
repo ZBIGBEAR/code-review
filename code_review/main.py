@@ -448,8 +448,15 @@ fi
 echo "Changed files: $changed_files"
 echo ""
 
-# Find Python with code_review module
-PYTHON_BIN=$(python3 -c "import sys; print(sys.executable)" 2>/dev/null || echo "python3")
+# Find Python with code_review module installed
+# Try common locations
+for py in "/opt/homebrew/Caskroom/miniconda/base/bin/python3" "/usr/local/bin/python3" "$HOME/miniconda3/bin/python3" "$HOME/anaconda3/bin/python3" "python3"; do
+    if $py -c "import code_review" 2>/dev/null; then
+        PYTHON_BIN=$py
+        break
+    fi
+done
+PYTHON_BIN=${PYTHON_BIN:-python3}
 
 # Run code review with reports output
 result=$(echo "$diff_content" | $PYTHON_BIN -m code_review.main diff 2>&1) || true
