@@ -184,7 +184,7 @@ def _format_markdown_issue(issue: dict) -> str:
 
 def save_report(issues: list, score_info: dict, commit_info: dict = None,
                 changed_files: list = None, pr_url: str = None,
-                output_dir: str = "reports") -> str:
+                stats: dict = None, output_dir: str = "reports") -> str:
     """Save review report as markdown file to reports directory.
 
     Returns the path to the saved report.
@@ -201,7 +201,7 @@ def save_report(issues: list, score_info: dict, commit_info: dict = None,
         filename = f"review_{timestamp}.md"
 
     report_path = report_dir / filename
-    markdown_content = format_markdown(issues, score_info, commit_info, changed_files, pr_url)
+    markdown_content = format_markdown(issues, score_info, commit_info, changed_files, pr_url, stats)
     report_path.write_text(markdown_content, encoding="utf-8")
 
     return str(report_path)

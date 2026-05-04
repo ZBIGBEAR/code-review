@@ -8,7 +8,9 @@ from pathlib import Path
 
 from .llm import chat, SYSTEM, TOOLS
 from .output import format_report, format_json, format_markdown, save_report
+from .verifier import Scorer
 
+scorer = Scorer()
 
 TOOL_HANDLERS = {}
 
@@ -438,19 +440,12 @@ def _run_review(diff_content: str, changed_files: list, format: str = "text",
 
         # Extract issues and score
         issues = result.get("issues", [])
-        score_info = {
-            "score": result.get("score", 0),
-            "rating": result.get("rating", "?"),
-            "verdict": result.get("summary", ""),
-            "critical": sum(1 for i in issues if i.get("severity") == "critical"),
-            "warning": sum(1 for i in issues if i.get("severity") == "warning"),
-            "suggestion": sum(1 for i in issues if i.get("severity") == "suggestion"),
-        }
+        score_info = scorer.score(issues)
 
         # Save markdown report
         if output is None:
             output = "reports"
-        report_path = save_report(issues, score_info, commit_info, changed_files, pr_url, output)
+        report_path = save_report(issues, score_info, commit_info, changed_files, pr_url, stats, output)
         click.echo(f"📄 报告已保存: {report_path}")
 
         # Output results
