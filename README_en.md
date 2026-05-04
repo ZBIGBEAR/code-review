@@ -1,3 +1,4 @@
+[中文](./README.md)
 # Code Review
 
 Multi-agent code review system with LLM, supporting Git hooks and GitHub Actions.
