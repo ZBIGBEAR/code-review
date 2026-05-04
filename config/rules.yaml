@@ -1,0 +1,44 @@
+# Code Review Rules Configuration
+
+# Scoring weights
+scoring:
+  critical_weight: -15
+  warning_weight: -5
+  suggestion_weight: -1
+  base_score: 100
+
+# Review categories to enable
+categories:
+  - security
+  - style
+  - performance
+  - test
+  - docs
+
+# File patterns to include in review
+include_patterns:
+  - "*.py"
+  - "*.js"
+  - "*.ts"
+  - "*.jsx"
+  - "*.tsx"
+  - "*.go"
+  - "*.rs"
+  - "*.java"
+
+# File patterns to exclude from review
+exclude_patterns:
+  - "*/test_*"
+  - "*/__pycache__/*"
+  - "*/node_modules/*"
+  - "*.min.js"
+  - "*.pb.go"
+
+# Security rules - files to check for secrets
+secret_patterns:
+  - password
+  - secret
+  - api_key
+  - apikey
+  - token
+  - auth
