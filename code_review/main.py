@@ -1,19 +1,157 @@
 #!/usr/bin/env python3
-"""Code Review CLI - Multi-agent code review system."""
+"""Code Review CLI - Agent loop based code review system."""
 import sys
+import json
 import click
 from pathlib import Path
 
-from .llm import review_code
-from .git_utils import get_diff, get_commit_info, detect_language
-from .verifier import Verifier, Scorer
+from .llm import chat, SYSTEM_PROMPT, get_tools
 from .output import format_report, format_json
 
 
+TOOL_HANDLERS = {}
+
+
+def setup_tool_handlers():
+    """Setup tool handlers for executing AI tool calls."""
+    import subprocess
+    import os
+
+    def run_bash(command: str) -> str:
+        """Execute shell command."""
+        try:
+            result = subprocess.run(
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            output = (result.stdout + result.stderr).strip()
+            return output[:50000] if output else "(no output)"
+        except subprocess.TimeoutExpired:
+            return "Error: Timeout (120s)"
+        except Exception as e:
+            return f"Error: {e}"
+
+    def run_read(path: str, limit: int = None) -> str:
+        """Read file content."""
+        try:
+            content = Path(path).read_text()
+            lines = content.splitlines()
+            if limit and limit < len(lines):
+                lines = lines[:limit] + [f"... ({len(lines) - limit} more lines)"]
+            return "\n".join(lines)
+        except Exception as e:
+            return f"Error: {e}"
+
+    global TOOL_HANDLERS
+    TOOL_HANDLERS = {
+        "bash": run_bash,
+        "read_file": run_read,
+    }
+
+
+def execute_tool_call(block) -> dict:
+    """Execute a single tool call from AI response."""
+    tool_name = block.name
+    tool_input = dict(block.input or {})
+
+    handler = TOOL_HANDLERS.get(tool_name)
+    if not handler:
+        return {
+            "type": "tool_result",
+            "tool_use_id": block.id,
+            "content": f"Unknown tool: {tool_name}",
+        }
+
+    try:
+        if tool_name == "bash":
+            output = handler(tool_input.get("command", ""))
+        elif tool_name == "read_file":
+            output = handler(
+                tool_input.get("path", ""),
+                tool_input.get("limit"),
+            )
+        else:
+            output = handler(**tool_input)
+    except Exception as e:
+        output = f"Error executing {tool_name}: {e}"
+
+    return {
+        "type": "tool_result",
+        "tool_use_id": block.id,
+        "content": output,
+    }
+
+
+def agent_loop(messages: list) -> dict:
+    """Main agent loop - AI calls tools until review is done."""
+    tools = get_tools()
+    max_iterations = 50
+    iteration = 0
+
+    while iteration < max_iterations:
+        iteration += 1
+
+        # Call AI
+        response = chat(messages, system=SYSTEM_PROMPT, tools=tools)
+
+        # Add AI response to messages
+        messages.append({
+            "role": "assistant",
+            "content": response.content,
+        })
+
+        # Check if AI stopped without tool use
+        if response.stop_reason != "tool_use":
+            # AI finished without calling browse_codebase
+            text_content = _extract_text(response.content)
+            return {
+                "error": f"AI stopped unexpectedly: {response.stop_reason}",
+                "output": text_content,
+            }
+
+        # Collect tool results
+        tool_results = []
+        for block in response.content:
+            if block.type == "tool_use":
+                result = execute_tool_call(block)
+                tool_results.append(result)
+
+                # Check if this is the browse_codebase call with "done"
+                if block.name == "browse_codebase":
+                    try:
+                        result_json = json.loads(result["content"])
+                        # Review completed
+                        return result_json
+                    except (json.JSONDecodeError, KeyError):
+                        pass
+
+        # Add tool results to messages
+        messages.append({
+            "role": "user",
+            "content": tool_results,
+        })
+
+    return {"error": "Max iterations reached"}
+
+
+def _extract_text(content) -> str:
+    """Extract text content from AI response."""
+    if not isinstance(content, list):
+        return str(content) if content else ""
+    texts = []
+    for block in content:
+        if hasattr(block, "text") and block.text:
+            texts.append(block.text)
+    return "\n".join(texts) if texts else ""
+
+
 @click.group()
-@click.version_option(version="0.1.0")
+@click.version_option(version="0.2.0")
 def cli():
-    """Code Review - Multi-agent code review system."""
+    """Code Review - Agent-based code review system."""
     pass
 
 
@@ -26,23 +164,65 @@ def pr(pr_url, format):
     Example: code-review pr https://github.com/user/repo/pull/123
     """
     if not pr_url:
-        click.echo("错误：需要提供 PR URL", err=True)
-        click.echo("示例：code-review pr https://github.com/user/repo/pull/123")
+        click.echo("Error: PR URL is required", err=True)
+        click.echo("Example: code-review pr https://github.com/user/repo/pull/123")
         sys.exit(1)
 
-    click.echo("🔍 正在获取 PR 代码变更...")
+    setup_tool_handlers()
 
-    # For now, we'll try to get diff from local git if available
-    # Full GitHub API integration can be added later
-    diff_content = _get_pr_diff(pr_url)
+    click.echo("🔍 Getting PR code changes...")
 
-    if not diff_content:
-        click.echo("❌ 无法获取代码变更，请确认：", err=True)
-        click.echo("  1. 本地是否有对应的 git 仓库", err=True)
-        click.echo("  2. 是否配置了 GitHub token", err=True)
+    # Get diff from local git (assumes you're in the repo)
+    import subprocess
+    try:
+        diff_result = subprocess.run(
+            ["git", "diff", "--no-color"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        diff_content = diff_result.stdout or diff_result.stderr
+    except Exception as e:
+        click.echo(f"Error getting diff: {e}", err=True)
         sys.exit(1)
 
-    _run_review(diff_content, format)
+    if not diff_content.strip():
+        click.echo("No code changes found.")
+        sys.exit(0)
+
+    # Get changed files list
+    try:
+        files_result = subprocess.run(
+            ["git", "diff", "--name-only", "--no-color"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        changed_files = [f.strip() for f in files_result.stdout.split("\n") if f.strip()]
+    except Exception:
+        changed_files = []
+
+    # Get commit info if available
+    commit_info = {}
+    try:
+        log_result = subprocess.run(
+            ["git", "log", "-1", "--format=%H%n%an%n%ae%n%s", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        lines = log_result.stdout.strip().split("\n")
+        if len(lines) >= 4:
+            commit_info = {
+                "sha": lines[0],
+                "author": lines[1],
+                "email": lines[2],
+                "subject": lines[3],
+            }
+    except Exception:
+        pass
+
+    _run_review(diff_content, changed_files, format, commit_info)
 
 
 @cli.command()
@@ -53,36 +233,98 @@ def commit(commit, format):
 
     Example: code-review commit --commit abc123
     """
-    click.echo(f"🔍 正在审查 commit {commit}...")
+    setup_tool_handlers()
 
-    diff_content = get_diff(f"{commit}~1..{commit}")
-    commit_info = get_commit_info(commit)
+    click.echo(f"🔍 Reviewing commit {commit}...")
 
-    if not diff_content:
-        click.echo("❌ 未获取到代码变更")
+    import subprocess
+    try:
+        # Get commit info
+        log_result = subprocess.run(
+            ["git", "log", "-1", "--format=%H%n%an%n%ae%n%s%n%b", commit],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        lines = log_result.stdout.strip().split("\n")
+        commit_info = {
+            "sha": lines[0] if len(lines) > 0 else "",
+            "author": lines[1] if len(lines) > 1 else "",
+            "email": lines[2] if len(lines) > 2 else "",
+            "subject": lines[3] if len(lines) > 3 else "",
+            "body": "\n".join(lines[4:]) if len(lines) > 4 else "",
+        }
+
+        # Get diff for this commit
+        diff_result = subprocess.run(
+            ["git", "diff", f"{commit}~1..{commit}", "--no-color"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        diff_content = diff_result.stdout
+
+        # Get changed files
+        files_result = subprocess.run(
+            ["git", "diff", f"{commit}~1..{commit}", "--name-only", "--no-color"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        changed_files = [f.strip() for f in files_result.stdout.split("\n") if f.strip()]
+
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
-    _run_review(diff_content, format, commit_info)
+    if not diff_content.strip():
+        click.echo("No code changes found.")
+        sys.exit(0)
+
+    _run_review(diff_content, changed_files, format, commit_info)
 
 
 @cli.command()
 @click.option("--base-branch", "-b", default="main", help="Base branch to compare (default: main)")
-@click.option("--format", "-f", "-f", type=click.Choice(["text", "json"]), default="text", help="Output format")
+@click.option("--format", "-f", type=click.Choice(["text", "json"]), default="text", help="Output format")
 def diff(base_branch, format):
     """Review uncommitted or recent changes.
 
     Example: code-review diff --base-branch main
     """
-    click.echo(f"🔍 正在审查与 {base_branch} 的差异...")
+    setup_tool_handlers()
 
-    diff_content = get_diff(base_branch=base_branch)
-    language = detect_language()
+    click.echo(f"🔍 Reviewing changes compared to {base_branch}...")
 
-    if not diff_content:
-        click.echo("❌ 未获取到代码变更")
+    import subprocess
+    try:
+        # Get diff
+        diff_result = subprocess.run(
+            ["git", "diff", f"{base_branch}...HEAD", "--no-color"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        diff_content = diff_result.stdout
+
+        # Get changed files
+        files_result = subprocess.run(
+            ["git", "diff", f"{base_branch}...HEAD", "--name-only", "--no-color"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        changed_files = [f.strip() for f in files_result.stdout.split("\n") if f.strip()]
+
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
-    _run_review(diff_content, format, language=language)
+    if not diff_content.strip():
+        click.echo("No code changes found.")
+        sys.exit(0)
+
+    _run_review(diff_content, changed_files, format)
 
 
 @cli.command()
@@ -93,75 +335,62 @@ def file(file_path, format):
 
     Example: code-review file path/to/file.py
     """
-    click.echo(f"🔍 正在审查文件 {file_path}...")
+    setup_tool_handlers()
 
-    path = Path(file_path)
-    if not path.exists():
-        click.echo(f"❌ 文件不存在：{file_path}")
-        sys.exit(1)
-
-    diff_content = path.read_text()
-    language = _detect_file_language(file_path)
-
-    _run_review(diff_content, format, language=language)
-
-
-@cli.command()
-def hook():
-    """Install git pre-commit hook.
-
-    This command prints the hook script. Redirect to .git/hooks/pre-commit to install.
-    """
-    hook_script = """#!/bin/bash
-# Code Review Pre-Commit Hook
-# Installed by code-review tool
-
-echo "🔍 Running code review..."
-
-# Get the diff of staged files
-diff_content=$(git diff --cached --staged)
-
-if [ -z "$diff_content" ]; then
-    echo "No staged changes to review."
-    exit 0
-fi
-
-# Run code review
-result=$(code-review --stdin 2>&1)
-
-echo "$result"
-
-# Check for critical issues
-if echo "$result" | grep -q "Critical.*[1-9]"; then
-    echo ""
-    echo "❌ Review found critical issues. Please fix them before committing."
-    exit 1
-fi
-
-exit 0
-"""
-    click.echo(hook_script)
-
-
-def _run_review(diff_content, format="text", commit_info=None, language=None):
-    """Run the review process."""
-    if language is None:
-        language = detect_language()
-
-    click.echo(f"📝 检测到语言：{language}")
-    click.echo("🤖 正在进行代码审查...")
+    click.echo(f"🔍 Reviewing file {file_path}...")
 
     try:
-        # Call LLM for review
-        raw_output = review_code(diff_content, language)
+        content = Path(file_path).read_text()
+        diff_content = f"File: {file_path}\n\n{content}"
+        changed_files = [file_path]
+    except Exception as e:
+        click.echo(f"Error reading file: {e}", err=True)
+        sys.exit(1)
 
-        # Verify and parse results
-        verifier = Verifier()
-        issues = verifier.verify(raw_output)
+    _run_review(diff_content, changed_files, format)
 
-        # Score results
-        scorer = Scorer()
-        score_info = scorer.score(issues)
+
+def _run_review(diff_content: str, changed_files: list, format: str = "text", commit_info: dict = None):
+    """Run the review using agent loop."""
+    click.echo(f"📝 Changed files: {len(changed_files)}")
+    click.echo("🤖 Starting agent-based code review...")
+
+    # Build initial messages
+    changed_files_str = "\n".join(f"- {f}" for f in changed_files) if changed_files else "No files"
+    initial_message = f"""请审查以下代码变更。
+
+## 变更的文件列表
+{changed_files_str}
+
+## Git Diff
+{diff_content}
+
+请开始审查：
+1. 首先了解项目结构（使用 ls, find 等命令）
+2. 阅读修改的文件内容，理解改动意图
+3. 探索可能受影响的未修改代码
+4. 完成审查后，调用 browse_codebase 工具返回结果
+"""
+
+    messages = [{"role": "user", "content": initial_message}]
+
+    try:
+        result = agent_loop(messages)
+
+        if "error" in result and "output" not in result:
+            click.echo(f"❌ {result['error']}", err=True)
+            sys.exit(1)
+
+        # Extract issues and score
+        issues = result.get("issues", [])
+        score_info = {
+            "score": result.get("score", 0),
+            "rating": result.get("rating", "?"),
+            "verdict": result.get("summary", ""),
+            "critical": sum(1 for i in issues if i.get("severity") == "critical"),
+            "warning": sum(1 for i in issues if i.get("severity") == "warning"),
+            "suggestion": sum(1 for i in issues if i.get("severity") == "suggestion"),
+        }
 
         # Output results
         if format == "json":
@@ -170,39 +399,43 @@ def _run_review(diff_content, format="text", commit_info=None, language=None):
             report = format_report(issues, score_info, commit_info)
             click.echo(report)
 
+        # Exit with error if critical issues found
+        if score_info["critical"] > 0:
+            sys.exit(1)
+
     except Exception as e:
-        click.echo(f"❌ 审查失败：{e}", err=True)
+        import traceback
+        click.echo(f"❌ Review failed: {e}", err=True)
+        traceback.print_exc()
         sys.exit(1)
 
 
-def _get_pr_diff(pr_url: str) -> str:
-    """Get diff from a PR URL.
+@cli.command()
+def hook():
+    """Print git pre-commit hook script."""
+    hook_script = """#!/bin/bash
+# Code Review Pre-Commit Hook
+set -e
 
-    This is a simplified version - full implementation would use GitHub API.
-    """
-    # Try to get diff from local repo
-    return get_diff()
+echo "🔍 Running code review..."
 
+# Get staged changes
+diff_content=$(git diff --cached --diff-filter=ACMR --staged)
 
-def _detect_file_language(file_path: str) -> str:
-    """Detect language from file extension."""
-    ext_map = {
-        ".py": "python",
-        ".js": "javascript",
-        ".ts": "typescript",
-        ".jsx": "javascript",
-        ".tsx": "typescript",
-        ".go": "go",
-        ".rs": "rust",
-        ".java": "java",
-        ".rb": "ruby",
-        ".php": "php",
-        ".c": "c",
-        ".cpp": "cpp",
-        ".h": "c",
-    }
-    ext = Path(file_path).suffix
-    return ext_map.get(ext, "python")
+if [ -z "$diff_content" ]; then
+    echo "No staged changes to review."
+    exit 0
+fi
+
+# Get list of changed files
+changed_files=$(git diff --cached --name-only --diff-filter=ACMR --staged | tr '\\n' ' ')
+
+# Run code review
+echo "$diff_content" | code-review diff 2>&1 || true
+
+exit 0
+"""
+    click.echo(hook_script)
 
 
 if __name__ == "__main__":
