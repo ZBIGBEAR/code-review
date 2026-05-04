@@ -5,8 +5,8 @@ import json
 import click
 from pathlib import Path
 
-from .llm import chat, SYSTEM_PROMPT, get_tools
-from .output import format_report, format_json
+from .llm import chat, SYSTEM, TOOLS
+from .output import format_report, format_json, format_markdown, save_report
 
 
 TOOL_HANDLERS = {}
@@ -87,7 +87,7 @@ def execute_tool_call(block) -> dict:
 
 def agent_loop(messages: list) -> dict:
     """Main agent loop - AI calls tools until review is done."""
-    tools = get_tools()
+    tools = TOOLS
     max_iterations = 50
     iteration = 0
 
@@ -95,7 +95,7 @@ def agent_loop(messages: list) -> dict:
         iteration += 1
 
         # Call AI
-        response = chat(messages, system=SYSTEM_PROMPT, tools=tools)
+        response = chat(messages, system=SYSTEM, tools=tools)
 
         # Add AI response to messages
         messages.append({
@@ -149,7 +149,7 @@ def _extract_text(content) -> str:
 
 
 @click.group()
-@click.version_option(version="0.2.0")
+@click.version_option(version="0.3.0")
 def cli():
     """Code Review - Agent-based code review system."""
     pass
@@ -350,8 +350,17 @@ def file(file_path, format):
     _run_review(diff_content, changed_files, format)
 
 
-def _run_review(diff_content: str, changed_files: list, format: str = "text", commit_info: dict = None):
-    """Run the review using agent loop."""
+def _run_review(diff_content: str, changed_files: list, format: str = "text",
+                commit_info: dict = None, output: str = None):
+    """Run the review using agent loop.
+
+    Args:
+        diff_content: Git diff content
+        changed_files: List of changed files
+        format: Output format (text/json)
+        commit_info: Commit information
+        output: Output directory for markdown report (default: reports/)
+    """
     click.echo(f"📝 Changed files: {len(changed_files)}")
     click.echo("🤖 Starting agent-based code review...")
 
@@ -392,6 +401,12 @@ def _run_review(diff_content: str, changed_files: list, format: str = "text", co
             "suggestion": sum(1 for i in issues if i.get("severity") == "suggestion"),
         }
 
+        # Save markdown report
+        if output is None:
+            output = "reports"
+        report_path = save_report(issues, score_info, commit_info, output)
+        click.echo(f"📄 报告已保存: {report_path}")
+
         # Output results
         if format == "json":
             click.echo(format_json(issues, score_info))
@@ -413,28 +428,49 @@ def _run_review(diff_content: str, changed_files: list, format: str = "text", co
 @cli.command()
 def hook():
     """Print git pre-commit hook script."""
-    hook_script = """#!/bin/bash
+    hook_script = '''#!/bin/bash
 # Code Review Pre-Commit Hook
+# Usage: code-review hook > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+
 set -e
 
-echo "🔍 Running code review..."
+echo "🔍 Running code review on staged changes..."
 
 # Get staged changes
 diff_content=$(git diff --cached --diff-filter=ACMR --staged)
+changed_files=$(git diff --cached --name-only --diff-filter=ACMR --staged | tr '\\n' ' ')
 
 if [ -z "$diff_content" ]; then
     echo "No staged changes to review."
     exit 0
 fi
 
-# Get list of changed files
-changed_files=$(git diff --cached --name-only --diff-filter=ACMR --staged | tr '\\n' ' ')
+echo "Changed files: $changed_files"
+echo ""
 
-# Run code review
-echo "$diff_content" | code-review diff 2>&1 || true
+# Run code review with reports output
+result=$(echo "$diff_content" | code-review diff 2>&1) || true
+echo "$result"
+
+# Check for critical issues - exit with error if found
+if echo "$result" | grep -q "Critical.*[1-9]"; then
+    echo ""
+    echo "❌ Critical issues found. Please fix them before committing."
+    exit 1
+fi
+
+# Check exit code from code-review
+if [ $? -eq 1 ]; then
+    echo ""
+    echo "❌ Code review failed. Please check the output above."
+    exit 1
+fi
+
+echo ""
+echo "✅ Code review passed!"
 
 exit 0
-"""
+'''
     click.echo(hook_script)
 
 
