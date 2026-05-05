@@ -13,6 +13,20 @@
 
 ## 安装
 
+### pip 安装（推荐）
+
+```bash
+pip install alex-code-review
+```
+
+或使用 pip3：
+
+```bash
+pip3 install alex-code-review
+```
+
+### 源码安装
+
 ```bash
 pip install -e .
 ```
@@ -102,8 +116,8 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install code-review
-        run: pip install code-review
+      - name: Install alex-code-review
+        run: pip install alex-code-review
 
       - name: Run Code Review
         env:
