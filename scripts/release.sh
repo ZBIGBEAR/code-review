@@ -151,9 +151,8 @@ if [ "$MODE" = "interactive" ] || [ "$MODE" = "test" ] || [ "$MODE" = "skip-test
         twine upload \
             --repository testpypi \
             --username 664141154@qq.com \
-            --password Zhang!@#123qwe \
-            dist/* \
-            2>&1 | tail -10
+            --password 'Zhang!@#123qwe' \
+            dist/* 2>&1
         if [ $? -eq 0 ]; then
             success "Uploaded to TestPyPI: https://test.pypi.org/project/code-review/"
         else
@@ -169,15 +168,11 @@ else
     info "Uploading to PyPI..."
     twine upload \
         --username 664141154@qq.com \
-        --password Zhang!@#123qwe \
-        dist/* \
-        2>&1 | tail -10
+        --password 'Zhang!@#123qwe' \
+        dist/* 2>&1
     if [ $? -eq 0 ]; then
         success "Uploaded to PyPI: https://pypi.org/project/code-review/${VERSION}/"
     else
         error "PyPI upload failed"
     fi
 fi
-
-echo ""
-success "Release complete!"
