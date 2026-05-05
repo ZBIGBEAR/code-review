@@ -48,7 +48,7 @@ code-review file path/to/file.py
 Install the pre-commit hook:
 
 ```bash
-cp hooks/pre-commit .git/hooks/pre-commit
+cp scripts/pre-commit .git/hooks/pre-commit
 chmod +x .git/hooks/pre-commit
 ```
 

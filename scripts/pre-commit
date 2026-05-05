@@ -1,0 +1,122 @@
+#!/bin/bash
+# Code Review Pre-Commit Hook (standalone, no external dependencies)
+# Usage: cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+
+set -e
+
+echo "🔍 Running code review on staged changes..."
+
+# Get staged changes (all file types)
+diff_content=$(git diff --cached)
+changed_files=$(git diff --cached --name-only | tr '\n' ' ')
+
+if [ -z "$diff_content" ]; then
+    echo "No staged changes to review."
+    exit 0
+fi
+
+echo "Changed files: $changed_files"
+echo ""
+
+critical=0
+warnings=0
+
+# ── Critical: Hardcoded secrets ─────────────────────────────────
+secrets=$(echo "$diff_content" | grep -n "^+" | grep -iE "(api_key|secret|password|token|passwd|private_key)\s*=\s*['\"][^'\"]{6,}['\"]" || true)
+if [ -n "$secrets" ]; then
+    echo "❌ CRITICAL: Hardcoded secrets found:"
+    echo "$secrets" | head -10
+    critical=$((critical + 1))
+fi
+
+# ── Critical: Shell injection ───────────────────────────────────
+shell_inj=$(echo "$diff_content" | grep -n "^+" | grep -E "os\.system\(|subprocess.*shell\s*=\s*True" || true)
+if [ -n "$shell_inj" ]; then
+    echo "❌ CRITICAL: Shell injection risk found:"
+    echo "$shell_inj" | head -10
+    critical=$((critical + 1))
+fi
+
+# ── Critical: Dangerous eval/exec ───────────────────────────────
+dangerous=$(echo "$diff_content" | grep -n "^+" | grep -E "\beval\(|\bexec\(" || true)
+if [ -n "$dangerous" ]; then
+    echo "❌ CRITICAL: Dangerous eval/exec found:"
+    echo "$dangerous" | head -10
+    critical=$((critical + 1))
+fi
+
+# ── Critical: SQL injection ─────────────────────────────────────
+sql_inj=$(echo "$diff_content" | grep -n "^+" | grep -E "execute\(f[\"']|\.format\(.*SELECT|\.format\(.*INSERT" || true)
+if [ -n "$sql_inj" ]; then
+    echo "❌ CRITICAL: SQL injection risk found:"
+    echo "$sql_inj" | head -10
+    critical=$((critical + 1))
+fi
+
+# ── Critical: Unsafe deserialization ────────────────────────────
+unpickle=$(echo "$diff_content" | grep -n "^+" | grep -E "pickle\.loads?\(" || true)
+if [ -n "$unpickle" ]; then
+    echo "❌ CRITICAL: Unsafe pickle deserialization found:"
+    echo "$unpickle" | head -10
+    critical=$((critical + 1))
+fi
+
+# ── Critical: Merge conflict markers ────────────────────────────
+conflicts=$(echo "$diff_content" | grep -n "<<<<<<\|>>>>>>\|======" || true)
+if [ -n "$conflicts" ]; then
+    echo "❌ CRITICAL: Merge conflict markers found:"
+    echo "$conflicts" | head -10
+    critical=$((critical + 1))
+fi
+
+# ── Warning: Debug statements ───────────────────────────────────
+debugs=$(echo "$diff_content" | grep -n "^+" | grep -E "print\(|console\.log|TODO|FIXME|HACK|XXX|debugger" || true)
+if [ -n "$debugs" ]; then
+    echo "⚠️  WARNING: Debug statements found:"
+    echo "$debugs" | head -10
+    warnings=$((warnings + 1))
+fi
+
+# ── Warning: Binary files staged ────────────────────────────────
+binary=$(echo "$diff_content" | grep -E "^\+{3} .*\.bin$|^\+{3} .*\.exe$|^\+{3} .*\.dll$|^\+{3} .*\.so$|^\+{3} .*\.dylib$|Binary" || true)
+if [ -n "$binary" ]; then
+    echo "⚠️  WARNING: Binary files staged:"
+    echo "$binary" | head -10
+    warnings=$((warnings + 1))
+fi
+
+# ── Warning: Hardcoded paths / TODO in comments ──────────────────
+paths=$(echo "$diff_content" | grep -n "^+" | grep -E "/[a-zA-Z0-9_/.-]{20,}" | grep -v "import\|from\|require\|require\.resolve\|git\|github\|http" || true)
+if [ -n "$paths" ]; then
+    count=$(echo "$paths" | wc -l | tr -d ' ')
+    if [ "$count" -gt 0 ] 2>/dev/null; then
+        echo "⚠️  WARNING: Hardcoded paths found (review if needed):"
+        echo "$paths" | head -5
+        warnings=$((warnings + 1))
+    fi
+fi
+
+echo ""
+echo "─────────────────────────────────"
+echo "Code Review Summary"
+echo "  Critical issues: $critical"
+echo "  Warnings:        $warnings"
+echo "─────────────────────────────────"
+
+if [ $critical -gt 0 ]; then
+    echo ""
+    echo "❌ Commit blocked: $critical critical issue(s) must be fixed."
+    echo "You can skip this hook with: git commit --no-verify"
+    exit 1
+fi
+
+if [ $warnings -gt 0 ]; then
+    echo ""
+    echo "⚠️  $warnings warning(s) found — review above."
+    echo "You can skip this hook with: git commit --no-verify"
+fi
+
+echo ""
+echo "✅ Code review passed!"
+
+exit 0

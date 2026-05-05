@@ -70,8 +70,8 @@ code-review pr https://github.com/user/repo/pull/123 --format json
 ### 安装 pre-commit hook
 
 ```bash
-# 方式一：复制脚本
-cp hooks/pre-commit .git/hooks/pre-commit
+# 方式一：复制脚本（从源码仓库）
+cp scripts/pre-commit .git/hooks/pre-commit
 chmod +x .git/hooks/pre-commit
 
 # 方式二：使用命令
