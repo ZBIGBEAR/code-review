@@ -80,11 +80,11 @@ import sys
 ver = sys.version_info
 if ver >= (3, 11):
     import tomllib
-    with open('code_review/pyproject.toml', 'rb') as f:
+    with open('pyproject.toml', 'rb') as f:
         data = tomllib.load(f)
 else:
     import tomli
-    with open('code_review/pyproject.toml', 'rb') as f:
+    with open('pyproject.toml', 'rb') as f:
         data = tomli.load(f)
 print(data['project']['version'])
 " 2>/dev/null)
@@ -97,7 +97,7 @@ if [ "$MODE" = "interactive" ]; then
         VERSION="$NEW_VERSION"
         info "Bumping version to ${VERSION}..."
         # Update pyproject.toml — use sed to avoid any toml library dependency
-        sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" code_review/pyproject.toml
+        sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
         success "Version updated to ${VERSION}"
     fi
 elif [ "$MODE" != "dry" ]; then
@@ -108,7 +108,7 @@ elif [ "$MODE" != "dry" ]; then
     PATCH=$((PATCH + 1))
     NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
     info "Bumping version to ${NEW_VERSION} for upload..."
-    sed -i '' "s/^version = \".*\"/version = \"$NEW_VERSION\"/" code_review/pyproject.toml
+    sed -i '' "s/^version = \".*\"/version = \"$NEW_VERSION\"/" pyproject.toml
     VERSION="$NEW_VERSION"
 fi
 
