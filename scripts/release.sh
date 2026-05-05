@@ -75,8 +75,19 @@ python3 -m pip install --upgrade build twine wheel 2>&1 | tail -3
 
 # ── Version ─────────────────────────────────────────────────────
 cd "$(dirname "$0")/.."
-VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('code_review/pyproject.toml', 'rb'))['project']['version'])" 2>/dev/null \
-    || python3 -c "import toml; print(toml.load(open('code_review/pyproject.toml'))['project']['version'])")
+VERSION=$(python3 -c "
+import sys
+ver = sys.version_info
+if ver >= (3, 11):
+    import tomllib
+    with open('code_review/pyproject.toml', 'rb') as f:
+        data = tomllib.load(f)
+else:
+    import tomli
+    with open('code_review/pyproject.toml', 'rb') as f:
+        data = tomli.load(f)
+print(data['project']['version'])
+" 2>/dev/null)
 info "Current version: ${VERSION}"
 
 if [ "$MODE" = "interactive" ]; then
@@ -85,20 +96,8 @@ if [ "$MODE" = "interactive" ]; then
     if [ -n "$NEW_VERSION" ]; then
         VERSION="$NEW_VERSION"
         info "Bumping version to ${VERSION}..."
-        # Update pyproject.toml
-        python3 -c "
-import tomllib
-with open('code_review/pyproject.toml', 'rb') as f:
-    data = tomllib.load(f)
-data['project']['version'] = '$VERSION'
-# Write back — tomllib has no dump, use manual replacement
-with open('code_review/pyproject.toml', 'r') as f:
-    content = f.read()
-import re
-content = re.sub(r'^version = \".*\"', 'version = \"$VERSION\"', content, flags=re.MULTILINE)
-with open('code_review/pyproject.toml', 'w') as f:
-    f.write(content)
-"
+        # Update pyproject.toml — use sed to avoid any toml library dependency
+        sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" code_review/pyproject.toml
         success "Version updated to ${VERSION}"
     fi
 elif [ "$MODE" != "dry" ]; then
@@ -109,14 +108,7 @@ elif [ "$MODE" != "dry" ]; then
     PATCH=$((PATCH + 1))
     NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
     info "Bumping version to ${NEW_VERSION} for upload..."
-    python3 -c "
-import re
-with open('code_review/pyproject.toml', 'r') as f:
-    content = f.read()
-content = re.sub(r'^version = \".*\"', 'version = \"$NEW_VERSION\"', content, flags=re.MULTILINE)
-with open('code_review/pyproject.toml', 'w') as f:
-    f.write(content)
-"
+    sed -i '' "s/^version = \".*\"/version = \"$NEW_VERSION\"/" code_review/pyproject.toml
     VERSION="$NEW_VERSION"
 fi
 
