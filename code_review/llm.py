@@ -1,9 +1,9 @@
 """LLM client for code review."""
 import anthropic
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 import os
 
-load_dotenv()
+load_dotenv(find_dotenv())
 
 SYSTEM = """你是一个专业的代码审查专家。你的任务是对代码变更进行全面审查。
 
