@@ -13,8 +13,40 @@ Multi-agent code review system with LLM, supporting Git hooks and GitHub Actions
 
 ## Installation
 
+### pip install (recommended)
+
+```bash
+pip install alex-code-review
+```
+
+Or with pip3:
+
+```bash
+pip3 install alex-code-review
+```
+
+### Upgrade
+
+```bash
+pip install --upgrade alex-code-review
+```
+
+Or:
+
+```bash
+pip3 install --upgrade alex-code-review
+```
+
+### Install from source
+
 ```bash
 pip install -e .
+```
+
+Or with uv:
+
+```bash
+uv pip install -e .
 ```
 
 ## Usage
@@ -78,8 +110,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-      - name: Install code-review
-        run: pip install code-review
+      - name: Install alex-code-review
+        run: pip install alex-code-review
       - name: Run Code Review
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
