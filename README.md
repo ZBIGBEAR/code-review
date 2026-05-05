@@ -225,9 +225,3 @@ categories:
 ## License
 
 MIT
-
-test
-test2
-test hook
-hook test
-test

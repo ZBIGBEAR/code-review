@@ -432,7 +432,9 @@ def _run_review(diff_content: str, changed_files: list, format: str = "text",
     messages = [{"role": "user", "content": initial_message}]
 
     try:
-        result = agent_loop(messages)
+        loop_result = agent_loop(messages)
+        stats = loop_result.get("stats", {}) if loop_result else {}
+        result = loop_result.get("result", {}) if loop_result else {}
 
         if "error" in result and "output" not in result:
             click.echo(f"❌ {result['error']}", err=True)
@@ -450,13 +452,18 @@ def _run_review(diff_content: str, changed_files: list, format: str = "text",
 
         # Output results
         if format == "json":
-            click.echo(format_json(issues, score_info))
+            click.echo(format_json(issues, score_info, stats))
         else:
-            report = format_report(issues, score_info, commit_info)
+            report = format_report(issues, score_info, commit_info, stats)
             click.echo(report)
 
-        # Exit with error if critical issues found
+        # Exit with error if critical issues found or score < 75
         if score_info["critical"] > 0:
+            click.echo("❌ Critical issues found. Please fix them before committing.", err=True)
+            sys.exit(1)
+
+        if score_info["score"] < 75:
+            click.echo(f"❌ Score {score_info['score']}/100 is below 75. Please improve your code.", err=True)
             sys.exit(1)
 
     except Exception as e:
@@ -528,6 +535,9 @@ rm -f "$CHANGED_FILES_TMP"
 
 echo "$result"
 
+# Save the code-review exit code (important: do this BEFORE any other commands that might change $?)
+review_exit_code=$exit_code
+
 # Check for critical issues - exit with error if found
 if echo "$result" | grep -q "Critical.*[1-9]"; then
     echo ""
@@ -536,8 +546,16 @@ if echo "$result" | grep -q "Critical.*[1-9]"; then
     exit 1
 fi
 
+# Check for score < 75
+if echo "$result" | grep -qE "Score [0-9]+/100 is below 75"; then
+    echo ""
+    echo "❌ Score is below 75. Please improve your code before committing."
+    echo "You can skip this hook with: git commit --no-verify"
+    exit 1
+fi
+
 # Check exit code from code-review
-if [ $exit_code -ne 0 ]; then
+if [ $review_exit_code -ne 0 ]; then
     echo ""
     echo "❌ Code review failed after $MAX_RETRIES attempts. Please check the output above."
     echo "You can skip this hook with: git commit --no-verify"

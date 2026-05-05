@@ -4,12 +4,23 @@ from pathlib import Path
 from datetime import datetime
 
 
-def format_report(issues: list, score_info: dict, commit_info: dict = None) -> str:
+def format_report(issues: list, score_info: dict, commit_info: dict = None, stats: dict = None) -> str:
     """Format review results as a readable text report."""
+    stats = stats or {}
     lines = []
     lines.append("=" * 50)
     lines.append("📋 Code Review Report")
     lines.append("=" * 50)
+
+    # Statistics
+    if stats:
+        lines.append("")
+        lines.append(f"⏱️ 审查耗时: {stats.get('duration', 0)}秒")
+        lines.append(f"🤖 AI 调用次数: {stats.get('ai_calls', 0)}")
+        if stats.get("tool_calls"):
+            lines.append("🔧 工具调用统计:")
+            for tool, count in stats["tool_calls"].items():
+                lines.append(f"   - {tool}: {count}次")
 
     if commit_info:
         lines.append(f"\n📦 Commit: {commit_info.get('sha', 'N/A')[:8]}")
@@ -75,7 +86,7 @@ def _format_issue(issue: dict) -> str:
     return "\n".join(lines)
 
 
-def format_json(issues: list, score_info: dict) -> str:
+def format_json(issues: list, score_info: dict, stats: dict = None) -> str:
     """Format results as JSON."""
     return json.dumps({
         "score": score_info["score"],
@@ -87,17 +98,31 @@ def format_json(issues: list, score_info: dict) -> str:
             "suggestion": score_info["suggestion"],
         },
         "issues": issues,
+        "stats": stats or {},
     }, ensure_ascii=False, indent=2)
 
 
 def format_markdown(issues: list, score_info: dict, commit_info: dict = None,
-                   changed_files: list = None, pr_url: str = None) -> str:
+                   changed_files: list = None, pr_url: str = None,
+                   stats: dict = None) -> str:
     """Format results as markdown report."""
     lines = []
     lines.append("# Code Review Report")
     lines.append("")
     lines.append(f"**时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append("")
+
+    # Statistics
+    if stats:
+        lines.append("## 📊 审查统计")
+        lines.append("")
+        lines.append(f"- ⏱️ 审查耗时: **{stats.get('duration', 0)}秒**")
+        lines.append(f"- 🤖 AI 调用次数: **{stats.get('ai_calls', 0)}**")
+        if stats.get("tool_calls"):
+            lines.append("- 🔧 工具调用统计:")
+            for tool, count in stats["tool_calls"].items():
+                lines.append(f"  - `{tool}`: {count}次")
+        lines.append("")
 
     if pr_url:
         lines.append(f"**PR**: {pr_url}")
