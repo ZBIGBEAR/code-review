@@ -25,6 +25,18 @@ pip install alex-code-review
 pip3 install alex-code-review
 ```
 
+### 更新
+
+```bash
+pip install --upgrade alex-code-review
+```
+
+或：
+
+```bash
+pip3 install --upgrade alex-code-review
+```
+
 ### 源码安装
 
 ```bash
