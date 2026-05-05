@@ -7,9 +7,9 @@ with open("README.md", "r", encoding="utf-8") as f:
     long_description = f.read()
 
 setup(
-    name="ai-code-review",
+    name="alex-code-review",
     version=__version__,
-    author="Zhang Jianxiong",
+    author="Alex",
     author_email="664141154@qq.com",
     description="Multi-agent code review system with LLM",
     long_description=long_description,
@@ -33,7 +33,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'ai-code-review=code_review.main:cli',
+            'alex-code-review=code_review.main:cli',
         ],
     },
     include_package_data=True,
