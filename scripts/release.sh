@@ -75,19 +75,7 @@ python3 -m pip install --upgrade build twine wheel 2>&1 | tail -3
 
 # ── Version ─────────────────────────────────────────────────────
 cd "$(dirname "$0")/.."
-VERSION=$(python3 -c "
-import sys
-ver = sys.version_info
-if ver >= (3, 11):
-    import tomllib
-    with open('pyproject.toml', 'rb') as f:
-        data = tomllib.load(f)
-else:
-    import tomli
-    with open('pyproject.toml', 'rb') as f:
-        data = tomli.load(f)
-print(data['project']['version'])
-" 2>/dev/null)
+VERSION=$(python3 -c "import sys; sys.path.insert(0, '.'); from code_review import __version__; print(__version__)")
 info "Current version: ${VERSION}"
 
 if [ "$MODE" = "interactive" ]; then
@@ -97,7 +85,7 @@ if [ "$MODE" = "interactive" ]; then
         VERSION="$NEW_VERSION"
         info "Bumping version to ${VERSION}..."
         # Update pyproject.toml — use sed to avoid any toml library dependency
-        sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+        sed -i '' "s/__version__ = \".*\"/__version__ = \"$VERSION\"/" code_review/__init__.py
         success "Version updated to ${VERSION}"
     fi
 elif [ "$MODE" != "dry" ]; then
@@ -130,7 +118,7 @@ fi
 # ── Build ────────────────────────────────────────────────────────
 info "Building package..."
 rm -rf dist/ build/ *.egg-info
-python3 -m build
+python3 setup.py sdist bdist_wheel
 success "Package built successfully:"
 ls -lh dist/
 
