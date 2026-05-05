@@ -1,5 +1,5 @@
 #!/bin/bash
-# Release script for code-review package
+# Release script for ai-code-review package
 # Publishes to PyPI and optionally TestPyPI
 #
 # Usage:
@@ -154,7 +154,7 @@ if [ "$MODE" = "interactive" ] || [ "$MODE" = "test" ] || [ "$MODE" = "skip-test
             --password 'Zhang!@#123qwe' \
             dist/* 2>&1
         if [ $? -eq 0 ]; then
-            success "Uploaded to TestPyPI: https://test.pypi.org/project/code-review/"
+            success "Uploaded to TestPyPI: https://test.pypi.org/project/ai-code-review/"
         else
             error "TestPyPI upload failed"
         fi
@@ -171,7 +171,7 @@ else
         --password 'Zhang!@#123qwe' \
         dist/* 2>&1
     if [ $? -eq 0 ]; then
-        success "Uploaded to PyPI: https://pypi.org/project/code-review/${VERSION}/"
+        success "Uploaded to PyPI: https://pypi.org/project/ai-code-review/${VERSION}/"
     else
         error "PyPI upload failed"
     fi
