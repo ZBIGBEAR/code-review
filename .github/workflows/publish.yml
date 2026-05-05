@@ -1,4 +1,4 @@
-name: Publish to PyPI
+name: Publish alex-code-review to PyPI
 
 on:
   push:
@@ -9,6 +9,9 @@ on:
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
+    # Trusted Publisher - no token needed
+    permissions:
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -17,15 +20,10 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel twine
-
       - name: Build distribution
         run: python setup.py sdist bdist_wheel
 
       - name: Publish to PyPI
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: twine upload dist/* --verbose
+        uses: pypi/publish-python-v1@v1
+        with:
+          project-name: alex-code-review
