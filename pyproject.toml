@@ -2,50 +2,5 @@
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
-[project]
-name = "code-review"
-version = "0.1.2"
-description = "Multi-agent code review system with LLM"
-readme = "README.md"
-requires-python = ">=3.10"
-license = "MIT"
-authors = [
-    {name = "Zhang Jianxiong", email = "664141154@qq.com"}
-]
-keywords = ["code-review", "llm", "claude", "git", "pre-commit", "security"]
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "Operating System :: OS Independent",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Topic :: Software Development :: Quality Assurance",
-    "Topic :: Software Development :: Pre-commit hooks",
-]
-dependencies = [
-    "click>=8.0",
-    "pyyaml>=6.0",
-    "gitpython>=3.1",
-    "anthropic>=0.18",
-    "python-dotenv>=1.0",
-]
-
-[project.optional-dependencies]
-dev = ["pytest>=7.0"]
-
-[project.scripts]
-code-review = "code_review.main:cli"
-
-[project.urls]
-Homepage = "https://github.com/ZBIGBEAR/code-review"
-Repository = "https://github.com/ZBIGBEAR/code-review"
-
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["code_review*"]
-exclude = ["reports*", "actions*", "config*", "scripts*"]
-
-[tool.setuptools.package-data]
-code_review = ["pyproject.toml"]
+exclude = ["reports*", "actions*", "scripts*"]
